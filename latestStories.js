@@ -1,7 +1,6 @@
 const http = require("http");
 const https = require("https");
 const fs = require('fs');
-const { JSDOM } = require('jsdom');
 
 // URL of the website we want to fetch
 const url = "https://time.com/";
@@ -21,20 +20,22 @@ const handleTimeStoriesRequest = (req, res) => {
 
       // When all data has been received
       response.on("end", () => {
-        // Extract latest stories using jsdom
-        const latestStories = extractLatestStories(data);
+        // Call the function to extract data manually
+        const array = extractStories(data);
 
+        // Limit the response to the first 6 stories
+        const responseData = array.slice(0, 6);
         // Send JSON response with the extracted data
         res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify(latestStories));
+        res.end(JSON.stringify(responseData));
       });
     })
-    // Handle errors during the request
-    .on("error", (error) => {
-      console.error(error);
-      res.writeHead(500, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ error: "Internal Server Error" }));
-    });
+      // Handle errors during the request
+      .on("error", (error) => {
+        console.error(error);
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Internal Server Error" }));
+      });
   } else {
     // If the request does not match "/getTimeStories", handle as default request
     handleDefaultRequest(req, res);
@@ -68,34 +69,48 @@ const serveStaticFile = (filename, res) => {
   });
 };
 
-// Function to extract latest stories using jsdom
-const extractLatestStories = (htmlString) => {
-  // Initialize an array to store the extracted stories
-  const latestStories = [];
+// Function to manually extract stories from HTML string
+const extractStories = (html) => {
+  const array = [];
+  let currentIndex = 0;
 
-  // Create a DOM-like environment using jsdom
-  const dom = new JSDOM(htmlString);
-  const document = dom.window.document;
+  while (true) {
+    // Find the index of the next story
+    const startIndex = html.indexOf('<li class="latest-stories__item">', currentIndex);
+    if (startIndex === -1) {
+      console.log("No more stories found, exiting loop");
+      break; // No more stories found, exit loop
+    }
 
-  // Select the container element for latest stories
-  const container = document.querySelector('.most-popular-feed__item-container');
+    // Find the index of the closing tag for the current story
+    const endIndex = html.indexOf('</li>', startIndex);
+    if (endIndex === -1) {
+      console.log("Closing tag </li> not found, exiting loop");
+      break; // No end tag found, exit loop
+    }
 
-  // If container exists, iterate over each story item and extract data
-  if (container) {
-    const items = container.querySelectorAll('.most-popular-feed__item');
-    items.forEach((item) => {
-      const titleElement = item.querySelector('.most-popular-feed__item-headline');
-      const linkElement = item.querySelector('a');
-      if (titleElement && linkElement) {
-        const title = titleElement.textContent.trim();
-        const link = linkElement.getAttribute('href');
-        latestStories.push({ title, link });
-      }
-    });
+    // Extract the content of the current story
+    const storyContent = html.slice(startIndex, endIndex + '</li>'.length);
+    console.log("Extracted story content:", storyContent);
+
+    // Find the title and link within the story content
+    const titleStartIndex = storyContent.indexOf('<h3 class="latest-stories__item-headline">');
+    const titleEndIndex = storyContent.indexOf('</h3>', titleStartIndex);
+    const title = storyContent.slice(titleStartIndex + '<h3 class="latest-stories__item-headline">'.length, titleEndIndex);
+    console.log("Extracted title:", title);
+
+    const linkStartIndex = storyContent.indexOf('<a href="');
+    const linkEndIndex = storyContent.indexOf('">', linkStartIndex);
+    const link = 'https://time.com' + storyContent.slice(linkStartIndex + '<a href="'.length, linkEndIndex);
+    console.log("Extracted link:", link);
+
+    array.push({ title: title.trim(), link });
+    currentIndex = endIndex + '</li>'.length; // Move currentIndex to the end of the current story
   }
 
-  return latestStories;
+  return array;
 };
+
 
 // Create an HTTP server
 const server = http.createServer((req, res) => {
@@ -104,7 +119,7 @@ const server = http.createServer((req, res) => {
 });
 
 // Define the port to listen on
-const PORT = 3000;
+const PORT = 3001;
 // Start the server
 server.listen(PORT, () => {
   console.log(`Server is running on http://localhost:${PORT}`);
